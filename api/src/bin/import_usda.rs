@@ -28,9 +28,12 @@ struct Args {
     /// TRUNCATE the nutrition tables before importing.
     #[arg(long, default_value_t = false)]
     reset: bool,
+    /// Comma-separated USDA `data_type` values to include. Branded adds ~350k
+    /// rows and pushes the DB to 2–3 GB — opt in explicitly with
+    /// `--data-types sr_legacy_food,foundation_food,branded_food`.
+    #[arg(long, default_value = "sr_legacy_food,foundation_food")]
+    data_types: String,
 }
-
-const FOOD_DATA_TYPES: &[&str] = &["sr_legacy_food", "foundation_food"];
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -57,9 +60,17 @@ async fn main() -> Result<()> {
         .await?;
     }
 
+    let data_types: Vec<String> = args
+        .data_types
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    tracing::info!(?data_types, "filtering food.csv by data_type");
+
     import_nutrients(conn.as_mut(), &args.dir.join("nutrient.csv")).await?;
     import_measure_units(conn.as_mut(), &args.dir.join("measure_unit.csv")).await?;
-    let fdc_ids = import_foods(conn.as_mut(), &args.dir.join("food.csv")).await?;
+    let fdc_ids = import_foods(conn.as_mut(), &args.dir.join("food.csv"), &data_types).await?;
     import_food_nutrients(
         conn.as_mut(),
         &args.dir.join("food_nutrient.csv"),
@@ -137,14 +148,18 @@ async fn import_measure_units(conn: &mut PgConnection, path: &Path) -> Result<()
     Ok(())
 }
 
-async fn import_foods(conn: &mut PgConnection, path: &Path) -> Result<HashSet<i32>> {
+async fn import_foods(
+    conn: &mut PgConnection,
+    path: &Path,
+    data_types: &[String],
+) -> Result<HashSet<i32>> {
     let mut kept = HashSet::new();
     let sql = "COPY nutrition.foods(fdc_id, name, data_type, food_category_id, publication_date) \
                FROM STDIN WITH (FORMAT csv)";
     let rows = copy_csv(conn, sql, |w| {
         each_record(path, |r, header| {
             let data_type = field_str(r, header, "data_type")?;
-            if !FOOD_DATA_TYPES.contains(&data_type) {
+            if !data_types.iter().any(|d| d == data_type) {
                 return Ok(());
             }
             let fdc_id = field_i32(r, header, "fdc_id")?;
