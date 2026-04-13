@@ -3,12 +3,15 @@ mod config;
 mod db;
 mod error;
 mod handlers;
+mod llm;
 mod models;
+mod nutrition;
 mod routes;
 
 use std::sync::Arc;
 
 use handlers::auth_handler::AppState;
+use llm::ollama::OllamaClient;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::EnvFilter;
@@ -29,9 +32,16 @@ async fn main() {
 
     tracing::info!("connected to database");
 
+    let llm = Arc::new(OllamaClient::new(
+        config.ollama_api_key,
+        config.ollama_base_url,
+        config.ollama_model,
+    ));
+
     let state = Arc::new(AppState {
         pool,
         jwt_secret: config.jwt_secret,
+        llm,
     });
 
     let app = routes::app_router(state)

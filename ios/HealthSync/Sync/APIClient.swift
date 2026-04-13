@@ -107,6 +107,13 @@ actor APIClient {
         let _: RouteResponse = try await post(path: "/api/v1/health/workout-routes", body: payload)
     }
 
+    // MARK: - Voice Meal Logging
+
+    func parseMeal(text: String, mealType: String) async throws -> MealNutritionResponse {
+        let body = MealParseRequest(text: text, mealType: mealType)
+        return try await post(path: "/api/meals/parse", body: body)
+    }
+
     // MARK: - Delete
 
     func deleteSamples(_ uuids: [String]) async throws {

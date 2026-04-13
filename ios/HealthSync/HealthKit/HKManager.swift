@@ -19,11 +19,62 @@ final class HKManager: ObservableObject {
         guard isAvailable else { return }
 
         do {
-            try await store.requestAuthorization(toShare: [], read: HKTypes.allReadTypes)
+            try await store.requestAuthorization(
+                toShare: HKTypes.allWriteTypes,
+                read: HKTypes.allReadTypes
+            )
             isAuthorized = true
         } catch {
             print("HealthKit authorization failed: \(error)")
         }
+    }
+
+    /// Prefix every app-written correlation carries in `HKMetadataKeySyncIdentifier`,
+    /// so the read sync in `SyncEngine` can skip the app's own writes.
+    static let mealSyncIdentifierPrefix = "healthsync-meal-"
+
+    /// Write a food correlation atomically. Zero-valued nutrients are skipped.
+    func writeMealCorrelation(
+        foodName: String,
+        mealType: String,
+        nutrients: [HKQuantityTypeIdentifier: (amount: Double, unit: HKUnit)],
+        syncIdentifier: UUID,
+        date: Date = Date()
+    ) async throws {
+        var samples = Set<HKSample>()
+        for (id, entry) in nutrients where entry.amount > 0 {
+            let quantity = HKQuantity(unit: entry.unit, doubleValue: entry.amount)
+            let sample = HKQuantitySample(
+                type: HKQuantityType(id),
+                quantity: quantity,
+                start: date,
+                end: date
+            )
+            samples.insert(sample)
+        }
+
+        guard !samples.isEmpty,
+              let correlationType = HKCorrelationType.correlationType(forIdentifier: .food) else {
+            return
+        }
+
+        let metadata: [String: Any] = [
+            HKMetadataKeyFoodType: foodName,
+            "HKFoodMeal": mealType,
+            HKMetadataKeySyncIdentifier: Self.mealSyncIdentifierPrefix + syncIdentifier.uuidString,
+            HKMetadataKeySyncVersion: 1,
+            HKMetadataKeyWasUserEntered: true,
+        ]
+
+        let correlation = HKCorrelation(
+            type: correlationType,
+            start: date,
+            end: date,
+            objects: samples,
+            metadata: metadata
+        )
+
+        try await store.save(correlation)
     }
 
     /// Run an anchored object query for a single sample type with an optional limit.

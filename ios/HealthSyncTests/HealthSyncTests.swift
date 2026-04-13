@@ -1,7 +1,32 @@
+import HealthKit
 import XCTest
 @testable import HealthSync
 
 final class HealthSyncTests: XCTestCase {
+    func testIsAppWrittenFiltersAppMealSamples() throws {
+        let id = UUID()
+        let metadata: [String: Any] = [
+            HKMetadataKeySyncIdentifier: HKManager.mealSyncIdentifierPrefix + id.uuidString,
+            HKMetadataKeySyncVersion: 1,
+        ]
+        let sample = HKQuantitySample(
+            type: HKQuantityType(.dietaryProtein),
+            quantity: HKQuantity(unit: .gram(), doubleValue: 25.0),
+            start: Date(),
+            end: Date(),
+            metadata: metadata
+        )
+        XCTAssertTrue(SyncEngine.isAppWritten(sample))
+
+        let foreign = HKQuantitySample(
+            type: HKQuantityType(.dietaryProtein),
+            quantity: HKQuantity(unit: .gram(), doubleValue: 25.0),
+            start: Date(),
+            end: Date()
+        )
+        XCTAssertFalse(SyncEngine.isAppWritten(foreign))
+    }
+
     func testSyncPayloadEncoding() throws {
         let payload = SyncPayload(
             samples: [],

@@ -40,7 +40,11 @@ targets:
         NSHealthShareUsageDescription: >-
           HealthSync reads your health data to sync it to your personal dashboard.
         NSHealthUpdateUsageDescription: >-
-          HealthSync writes workout summaries back to Apple Health.
+          HealthSync writes the meals you voice-log back to Apple Health so all 38 nutrients live alongside your other health data.
+        NSMicrophoneUsageDescription: >-
+          HealthSync uses the microphone so you can describe meals by voice.
+        NSSpeechRecognitionUsageDescription: >-
+          HealthSync transcribes your meal descriptions on-device using Apple's Speech framework.
         NSLocationWhenInUseUsageDescription: >-
           HealthSync records your location at sync time to associate health data with where you are.
         NSLocalNetworkUsageDescription: >-

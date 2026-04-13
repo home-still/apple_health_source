@@ -248,4 +248,59 @@ enum HKTypes {
         types.append(HKSampleType.workoutType())
         return types
     }
+
+    // MARK: - Writable types (voice meal logging)
+
+    /// Dietary quantity identifiers the app writes to HealthKit when the user
+    /// logs a meal. Mirrors the server-side `nutrient_healthkit_map` rows.
+    static let dietaryWriteIdentifiers: [HKQuantityTypeIdentifier] = [
+        .dietaryEnergyConsumed,
+        .dietaryProtein,
+        .dietaryFatTotal,
+        .dietaryFatSaturated,
+        .dietaryFatMonounsaturated,
+        .dietaryFatPolyunsaturated,
+        .dietaryCholesterol,
+        .dietaryCarbohydrates,
+        .dietaryFiber,
+        .dietarySugar,
+        .dietaryWater,
+        .dietaryCaffeine,
+        .dietarySodium,
+        .dietaryPotassium,
+        .dietaryCalcium,
+        .dietaryIron,
+        .dietaryMagnesium,
+        .dietaryPhosphorus,
+        .dietaryZinc,
+        .dietaryCopper,
+        .dietaryManganese,
+        .dietarySelenium,
+        .dietaryChloride,
+        .dietaryChromium,
+        .dietaryIodine,
+        .dietaryMolybdenum,
+        .dietaryVitaminA,
+        .dietaryThiamin,
+        .dietaryRiboflavin,
+        .dietaryNiacin,
+        .dietaryPantothenicAcid,
+        .dietaryVitaminB6,
+        .dietaryBiotin,
+        .dietaryFolate,
+        .dietaryVitaminB12,
+        .dietaryVitaminC,
+        .dietaryVitaminD,
+        .dietaryVitaminE,
+        .dietaryVitaminK,
+    ]
+
+    static var allWriteTypes: Set<HKSampleType> {
+        var types = Set<HKSampleType>()
+        for id in dietaryWriteIdentifiers {
+            types.insert(HKQuantityType(id))
+        }
+        types.insert(HKCorrelationType.correlationType(forIdentifier: .food)!)
+        return types
+    }
 }

@@ -68,6 +68,15 @@ enum TypeSyncStatus: Sendable {
 final class SyncEngine: ObservableObject {
     static let shared = SyncEngine()
 
+    /// True for samples this app wrote itself (voice meal logger) so the
+    /// read sync can skip them and avoid a write→read upload loop.
+    static func isAppWritten(_ sample: HKSample) -> Bool {
+        guard let id = sample.metadata?[HKMetadataKeySyncIdentifier] as? String else {
+            return false
+        }
+        return id.hasPrefix(HKManager.mealSyncIdentifierPrefix)
+    }
+
     @Published var isSyncing = false
     @Published var lastError: String?
     @Published var typeStatus: [String: TypeSyncStatus] = [:]
@@ -175,7 +184,7 @@ final class SyncEngine: ObservableObject {
                     type: sampleType, anchor: chunkAnchor, limit: syncChunkSize
                 )
 
-                let chunkSamples = chunk.samples
+                let chunkSamples = chunk.samples.filter { !Self.isAppWritten($0) }
                 let chunkDeleted = chunk.deleted.map { $0.uuid.uuidString }
                 chunkAnchor = chunk.newAnchor
                 finalAnchor = chunk.newAnchor

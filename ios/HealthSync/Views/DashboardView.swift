@@ -100,6 +100,12 @@ struct DashboardView: View {
                             .font(.headline)
                     }
                 }
+                ToolbarItem(placement: .navigationBarLeading) {
+                    NavigationLink(destination: MealLogView()) {
+                        Image(systemName: "mic.fill")
+                    }
+                    .accessibilityLabel("Log meal by voice")
+                }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     NavigationLink(destination: SettingsView()) {
                         Image(systemName: "gear")

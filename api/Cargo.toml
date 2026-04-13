@@ -42,3 +42,13 @@ argon2 = "0.5"
 
 # Hashing
 sha2 = "0.10"
+
+# USDA importer + LLM client
+csv = "1"
+clap = { version = "4", features = ["derive"] }
+anyhow = "1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+async-trait = "0.1"
+
+[dev-dependencies]
+wiremock = "0.6"

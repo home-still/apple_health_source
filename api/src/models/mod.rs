@@ -1,4 +1,5 @@
 pub mod health_sample;
+pub mod meal;
 pub mod user;
 
 pub use health_sample::{
