@@ -32,7 +32,7 @@ actor SpeechService {
     /// Stream transcription updates from live microphone input. The stream
     /// yields the best-hypothesis transcript after each partial result and
     /// finishes when the recognizer reports `isFinal`.
-    func transcribe() throws -> AsyncThrowingStream<String, Error> {
+    func transcribe() async throws -> AsyncThrowingStream<String, Error> {
         guard let recognizer, recognizer.isAvailable else {
             throw SpeechError.unavailable
         }
@@ -41,7 +41,7 @@ actor SpeechService {
         request.requiresOnDeviceRecognition = true
         request.addsPunctuation = true
         request.taskHint = .dictation
-        request.customizedLanguageModel = FoodLanguageModel.configuration()
+        request.customizedLanguageModel = await FoodLanguageModel.configuration()
         self.request = request
 
         let session = AVAudioSession.sharedInstance()
