@@ -1,5 +1,5 @@
-use axum::extract::State;
 use axum::Json;
+use axum::extract::State;
 use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -39,12 +39,16 @@ pub async fn hash_check(
 
     for chunk in all_uuids.chunks(2000) {
         let chunk_vec: Vec<&str> = chunk.to_vec();
+        // Filter by sample_type so the TimescaleDB bloom filter can prune
+        // chunks that don't contain this type. Without it, the planner walks
+        // every chunk in the hypertable (~30s+ on multi-million-row tables).
         let rows: Vec<(String, Option<String>)> = sqlx::query_as(
             r#"SELECT hk_uuid, content_hash
                FROM health_samples
-               WHERE user_id = $1 AND hk_uuid = ANY($2)"#,
+               WHERE user_id = $1 AND sample_type = $2 AND hk_uuid = ANY($3)"#,
         )
         .bind(user_id)
+        .bind(&payload.sample_type)
         .bind(&chunk_vec)
         .fetch_all(&state.pool)
         .await?;
@@ -304,23 +308,61 @@ pub async fn sync(
 }
 
 /// POST /api/v1/health/delete
+///
+/// Removes every server-side trace of the given HealthKit UUIDs for the
+/// authenticated user: samples, workouts, and any workout route points keyed
+/// by the same UUID. Wrapped in a transaction so a mid-delete failure leaves
+/// nothing half-removed.
 pub async fn delete(
     State(state): State<std::sync::Arc<AppState>>,
     claims: Claims,
     Json(payload): Json<DeleteRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let result = sqlx::query(
-        "DELETE FROM health_samples WHERE user_id = $1 AND hk_uuid = ANY($2)",
-    )
-    .bind(claims.sub)
-    .bind(&payload.hk_uuids)
-    .execute(&state.pool)
-    .await?;
+    let user_id = claims.sub;
 
-    Ok(Json(serde_json::json!({ "deleted": result.rows_affected() })))
+    let mut tx = state.pool.begin().await?;
+
+    let samples =
+        sqlx::query("DELETE FROM health_samples WHERE user_id = $1 AND hk_uuid = ANY($2)")
+            .bind(user_id)
+            .bind(&payload.hk_uuids)
+            .execute(&mut *tx)
+            .await?
+            .rows_affected();
+
+    let route_points = sqlx::query(
+        "DELETE FROM workout_route_points WHERE user_id = $1 AND workout_hk_uuid = ANY($2)",
+    )
+    .bind(user_id)
+    .bind(&payload.hk_uuids)
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+
+    let workouts = sqlx::query("DELETE FROM workouts WHERE user_id = $1 AND hk_uuid = ANY($2)")
+        .bind(user_id)
+        .bind(&payload.hk_uuids)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+
+    tx.commit().await?;
+
+    Ok(Json(serde_json::json!({
+        "deleted": samples + workouts + route_points,
+        "samples_deleted": samples,
+        "workouts_deleted": workouts,
+        "route_points_deleted": route_points,
+    })))
 }
 
 /// POST /api/v1/health/workout-routes
+///
+/// Full-replace the route points for a given workout. The caller must own the
+/// workout — we gate on `workouts.user_id` so a malicious client cannot
+/// create route points keyed to another user's `hk_uuid`. The DELETE+INSERT
+/// pair runs in a single transaction so a mid-write failure can never leave
+/// the workout with an empty route.
 pub async fn sync_routes(
     State(state): State<std::sync::Arc<AppState>>,
     claims: Claims,
@@ -328,20 +370,30 @@ pub async fn sync_routes(
 ) -> Result<Json<serde_json::Value>, AppError> {
     let user_id = claims.sub;
 
-    // Delete existing points for this workout (full replace)
-    sqlx::query(
-        "DELETE FROM workout_route_points WHERE user_id = $1 AND workout_hk_uuid = $2",
+    let (workout_exists,): (bool,) = sqlx::query_as(
+        "SELECT EXISTS(SELECT 1 FROM workouts WHERE user_id = $1 AND hk_uuid = $2)",
     )
     .bind(user_id)
     .bind(&payload.workout_hk_uuid)
-    .execute(&state.pool)
+    .fetch_one(&state.pool)
     .await?;
+    if !workout_exists {
+        return Err(AppError::BadRequest("unknown workout".into()));
+    }
+
+    let mut tx = state.pool.begin().await?;
+
+    sqlx::query("DELETE FROM workout_route_points WHERE user_id = $1 AND workout_hk_uuid = $2")
+        .bind(user_id)
+        .bind(&payload.workout_hk_uuid)
+        .execute(&mut *tx)
+        .await?;
 
     if payload.points.is_empty() {
+        tx.commit().await?;
         return Ok(Json(serde_json::json!({ "points_synced": 0 })));
     }
 
-    // Batch INSERT using UNNEST
     let n = payload.points.len();
     let mut p_timestamps: Vec<DateTime<Utc>> = Vec::with_capacity(n);
     let mut p_user_ids: Vec<Uuid> = Vec::with_capacity(n);
@@ -386,8 +438,10 @@ pub async fn sync_routes(
     .bind(&p_v_acc)
     .bind(&p_speeds)
     .bind(&p_courses)
-    .execute(&state.pool)
+    .execute(&mut *tx)
     .await?;
+
+    tx.commit().await?;
 
     Ok(Json(serde_json::json!({ "points_synced": n })))
 }
