@@ -57,8 +57,8 @@ Decisions locked in v1:
 - [ ] `ios/HealthSyncTests/HealthSyncTests.swift`: unit test
 
 ## M9 — Deferred
-- [ ] `SFCustomLanguageModelData` food vocabulary
-- [ ] Branded Foods import
-- [ ] USDA Iodine supplemental dataset
-- [ ] Meal history view
-- [ ] API-side food-lookup cache
+- [x] `SFCustomLanguageModelData` food vocabulary — 130-phrase corpus, cached compile (7c1242f)
+- [x] Branded Foods import — `--data-types` flag opts it in (f212484)
+- [x] USDA Iodine supplemental dataset — table + fallback lookup (09fa721)
+- [x] Meal history view — GET /api/meals/history + iOS list (b3c0251)
+- [x] API-side food-lookup cache — moka in-memory LRU (55b57d1)
