@@ -114,6 +114,10 @@ actor APIClient {
         return try await post(path: "/api/meals/parse", body: body)
     }
 
+    func mealHistory(limit: Int = 50) async throws -> MealHistoryResponse {
+        try await get(path: "/api/meals/history?limit=\(limit)")
+    }
+
     // MARK: - Delete
 
     func deleteSamples(_ uuids: [String]) async throws {
@@ -148,6 +152,27 @@ actor APIClient {
             throw APIError.server(statusCode: http.statusCode, message: message)
         }
 
+        return try decoder.decode(Response.self, from: data)
+    }
+
+    private func get<Response: Decodable>(path: String) async throws -> Response {
+        guard let url = URL(string: path, relativeTo: baseURL) else {
+            throw APIError.invalidResponse
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        if let token {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            let message = String(data: data, encoding: .utf8) ?? "unknown error"
+            throw APIError.server(statusCode: http.statusCode, message: message)
+        }
         return try decoder.decode(Response.self, from: data)
     }
 }

@@ -83,6 +83,28 @@ struct NutrientValue: Codable {
     }
 }
 
+struct MealHistoryEntry: Codable, Identifiable {
+    let id: UUID
+    let syncIdentifier: UUID
+    let rawText: String
+    let mealType: String
+    let finalNutrients: [NutrientValue]
+    let createdAt: Date
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case syncIdentifier = "sync_identifier"
+        case rawText = "raw_text"
+        case mealType = "meal_type"
+        case finalNutrients = "final_nutrients"
+        case createdAt = "created_at"
+    }
+}
+
+struct MealHistoryResponse: Codable {
+    let items: [MealHistoryEntry]
+}
+
 extension MealNutritionResponse {
     /// Flatten per-item nutrients into a single map keyed by HealthKit identifier,
     /// ready to pass to `HKManager.writeMealCorrelation`. USDA unit strings are

@@ -1,3 +1,4 @@
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -61,4 +62,19 @@ pub struct NutrientValue {
     pub amount: f32,
     #[serde(default)]
     pub sparse: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MealHistoryEntry {
+    pub id: Uuid,
+    pub sync_identifier: Uuid,
+    pub raw_text: String,
+    pub meal_type: String,
+    pub final_nutrients: serde_json::Value,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MealHistoryResponse {
+    pub items: Vec<MealHistoryEntry>,
 }

@@ -7,8 +7,12 @@ use uuid::Uuid;
 use crate::auth::Claims;
 use crate::error::AppError;
 use crate::handlers::auth_handler::AppState;
+use axum::extract::Query;
+use serde::Deserialize;
+
 use crate::models::meal::{
-    MatchedItem, MealNutritionResponse, MealParseRequest, NutrientValue, ParsedItem,
+    MatchedItem, MealHistoryEntry, MealHistoryResponse, MealNutritionResponse, MealParseRequest,
+    NutrientValue, ParsedItem,
 };
 use crate::nutrition::cache::cached_best_match;
 use crate::nutrition::lookup::{nutrients_per_100g, portions_for, scale_nutrients};
@@ -104,6 +108,62 @@ async fn resolve_item(state: &AppState, parsed: ParsedItem) -> Result<MatchedIte
         grams,
         nutrients,
     })
+}
+
+#[derive(Debug, Deserialize)]
+pub struct HistoryParams {
+    #[serde(default = "default_limit")]
+    pub limit: i64,
+}
+
+fn default_limit() -> i64 {
+    50
+}
+
+pub async fn history(
+    State(state): State<std::sync::Arc<AppState>>,
+    claims: Claims,
+    Query(params): Query<HistoryParams>,
+) -> Result<Json<MealHistoryResponse>, AppError> {
+    let limit = params.limit.clamp(1, 200);
+    let rows: Vec<(
+        Uuid,
+        Uuid,
+        String,
+        String,
+        serde_json::Value,
+        chrono::DateTime<chrono::Utc>,
+    )> = sqlx::query_as(
+        r#"
+        SELECT id, sync_identifier, raw_text, meal_type, final_nutrients, created_at
+        FROM meal_logs
+        WHERE user_id = $1
+        ORDER BY created_at DESC
+        LIMIT $2
+        "#,
+    )
+    .bind(claims.sub)
+    .bind(limit)
+    .fetch_all(&state.pool)
+    .await?;
+
+    let items = rows
+        .into_iter()
+        .map(
+            |(id, sync_identifier, raw_text, meal_type, final_nutrients, created_at)| {
+                MealHistoryEntry {
+                    id,
+                    sync_identifier,
+                    raw_text,
+                    meal_type,
+                    final_nutrients,
+                    created_at,
+                }
+            },
+        )
+        .collect();
+
+    Ok(Json(MealHistoryResponse { items }))
 }
 
 fn aggregate_totals(items: &[MatchedItem]) -> Vec<NutrientValue> {

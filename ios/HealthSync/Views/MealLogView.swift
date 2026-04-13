@@ -101,6 +101,14 @@ struct MealLogView: View {
             }
         }
         .navigationTitle("Log Meal")
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                NavigationLink(destination: MealHistoryView()) {
+                    Image(systemName: "clock.arrow.circlepath")
+                }
+                .accessibilityLabel("Meal history")
+            }
+        }
         .task {
             _ = await SpeechService.requestAuthorization()
         }
