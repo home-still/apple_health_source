@@ -15,7 +15,9 @@ use crate::models::meal::{
     NutrientValue, ParsedItem,
 };
 use crate::nutrition::cache::cached_best_match;
-use crate::nutrition::lookup::{nutrients_per_100g, portions_for, scale_nutrients};
+use crate::nutrition::lookup::{
+    iodine_supplemental, nutrients_per_100g, portions_for, scale_nutrients,
+};
 use crate::nutrition::units::to_grams;
 
 pub async fn parse_meal(
@@ -92,7 +94,22 @@ async fn resolve_item(state: &AppState, parsed: ParsedItem) -> Result<MatchedIte
         Some(food) => {
             let portions = portions_for(&state.pool, food.fdc_id).await?;
             let grams = to_grams(parsed.quantity, &parsed.unit, &portions);
-            let per_100g = nutrients_per_100g(&state.pool, food.fdc_id).await?;
+            let mut per_100g = nutrients_per_100g(&state.pool, food.fdc_id).await?;
+
+            let has_iodine = per_100g
+                .iter()
+                .any(|(hk, ..)| hk == "HKQuantityTypeIdentifierDietaryIodine");
+            if !has_iodine {
+                if let Some(mcg) = iodine_supplemental(&state.pool, &food.name).await? {
+                    per_100g.push((
+                        "HKQuantityTypeIdentifierDietaryIodine".to_string(),
+                        "UG".to_string(),
+                        mcg,
+                        true,
+                    ));
+                }
+            }
+
             let nutrients = match grams {
                 Some(g) => scale_nutrients(per_100g, g),
                 None => Vec::new(),

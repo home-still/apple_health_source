@@ -71,6 +71,27 @@ pub async fn portions_for(pool: &PgPool, fdc_id: i32) -> Result<Vec<Portion>, Ap
         .collect())
 }
 
+/// Fuzzy-match a food name against the supplemental iodine table. Returns
+/// mcg per 100 g when a match exists, otherwise `None`.
+pub async fn iodine_supplemental(pool: &PgPool, food_name: &str) -> Result<Option<f32>, AppError> {
+    let row: Option<(f32,)> = sqlx::query_as(
+        r#"
+        SELECT iodine_mcg_per_100g
+        FROM nutrition.iodine_supplemental
+        WHERE search_vector @@ plainto_tsquery('english', $1)
+           OR name % $1
+        ORDER BY
+            ts_rank(search_vector, plainto_tsquery('english', $1)) DESC,
+            similarity(name, $1) DESC
+        LIMIT 1
+        "#,
+    )
+    .bind(food_name)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row.map(|(v,)| v))
+}
+
 /// Scale the per-100g amounts to the user's actual grams consumed.
 pub fn scale_nutrients(per_100g: Vec<(String, String, f32, bool)>, grams: f32) -> Vec<NutrientValue> {
     let factor = grams / 100.0;
