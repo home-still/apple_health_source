@@ -91,7 +91,10 @@ final class SyncEngine: ObservableObject {
     private let hkManager = HKManager.shared
     private let anchorStore = HKAnchorStore.shared
     private let locationManager = LocationHelper()
-    private var syncLock = false
+    /// One runner per sample type: different types sync in parallel, but two
+    /// invocations of the *same* type (e.g. an HK observer callback racing a
+    /// user-initiated syncAll) still serialize so they don't stomp the anchor.
+    private var runners: [String: SyncRunner] = [:]
 
     private init() {}
 
@@ -101,13 +104,20 @@ final class SyncEngine: ObservableObject {
     /// 1. Count — scan HealthKit in chunks to count total new samples
     /// 2. Read+Sync — process chunks: read → hash → check → sync → release
     func syncType(_ sampleType: HKSampleType) async {
-        // Wait for any in-progress sync to finish (prevents concurrent DB writes that deadlock)
-        while syncLock {
-            try? await Task.sleep(for: .milliseconds(100))
+        let typeRunner = runner(for: sampleType.identifier)
+        await typeRunner.run { [weak self] in
+            await self?.syncTypeInternal(sampleType)
         }
-        syncLock = true
-        defer { syncLock = false }
+    }
 
+    private func runner(for typeId: String) -> SyncRunner {
+        if let r = runners[typeId] { return r }
+        let r = SyncRunner()
+        runners[typeId] = r
+        return r
+    }
+
+    private func syncTypeInternal(_ sampleType: HKSampleType) async {
         let typeId = sampleType.identifier
         let shortName = typeId
             .replacingOccurrences(of: "HKQuantityTypeIdentifier", with: "")
@@ -372,9 +382,23 @@ final class SyncEngine: ObservableObject {
             }
         }
 
-        // Process each type sequentially
-        for sampleType in HKTypes.allSampleTypes {
-            await syncType(sampleType)
+        // Fan out across sample types with a bounded concurrency window.
+        // Types have independent HK anchors and independent API chunks, so
+        // there's no cross-type ordering requirement. Workout routes are
+        // synced inside the workout type's own pipeline, so the workout→route
+        // ordering is preserved automatically.
+        let concurrencyLimit = 4
+        await withTaskGroup(of: Void.self) { group in
+            var iterator = HKTypes.allSampleTypes.makeIterator()
+            for _ in 0..<concurrencyLimit {
+                guard let t = iterator.next() else { break }
+                group.addTask { [weak self] in await self?.syncType(t) }
+            }
+            while await group.next() != nil {
+                if let t = iterator.next() {
+                    group.addTask { [weak self] in await self?.syncType(t) }
+                }
+            }
         }
 
         // Retry queued failures
@@ -383,6 +407,25 @@ final class SyncEngine: ObservableObject {
         }
 
         isSyncing = false
+    }
+}
+
+// MARK: - Sync Runner
+
+/// Serializes SyncEngine work through an actor-isolated task chain. Every
+/// caller of `run` waits for the previous task to complete before its closure
+/// starts, so observer callbacks and user-initiated syncs can't interleave.
+actor SyncRunner {
+    private var tail: Task<Void, Never>?
+
+    func run(_ work: @Sendable @escaping () async -> Void) async {
+        let previous = tail
+        let task = Task<Void, Never> {
+            await previous?.value
+            await work()
+        }
+        tail = task
+        await task.value
     }
 }
 
