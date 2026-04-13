@@ -1,0 +1,88 @@
+name: HealthSync
+options:
+  bundleIdPrefix: com.ladvien
+  deploymentTarget:
+    iOS: "17.0"
+  generateEmptyDirectories: true
+
+targets:
+  HealthSync:
+    type: application
+    platform: iOS
+    sources:
+      - path: HealthSync
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.ladvien.healthsync
+        DEVELOPMENT_TEAM: KANRAMGCUY
+        CODE_SIGN_STYLE: Automatic
+        SWIFT_VERSION: "6.0"
+        GENERATE_INFOPLIST_FILE: YES
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: 1
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        DEVELOPMENT_ASSET_PATHS: ""
+        SWIFT_STRICT_CONCURRENCY: complete
+      configs:
+        debug:
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG
+        release:
+          SWIFT_OPTIMIZATION_LEVEL: -O
+    info:
+      path: HealthSync/Info.plist
+      properties:
+        CFBundleDisplayName: HealthSync
+        CFBundleShortVersionString: "0.1.0"
+        CFBundleVersion: "1"
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        NSHealthShareUsageDescription: >-
+          HealthSync reads your health data to sync it to your personal dashboard.
+        NSHealthUpdateUsageDescription: >-
+          HealthSync writes workout summaries back to Apple Health.
+        NSLocationWhenInUseUsageDescription: >-
+          HealthSync records your location at sync time to associate health data with where you are.
+        NSLocalNetworkUsageDescription: >-
+          HealthSync connects to your local API server to sync health data.
+        NSBonjourServices:
+          - _http._tcp
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+          NSAllowsArbitraryLoads: true
+        UIBackgroundModes:
+          - fetch
+    entitlements:
+      path: HealthSync/HealthSync.entitlements
+      properties:
+        com.apple.developer.healthkit: true
+        com.apple.developer.healthkit.background-delivery: true
+
+  HealthSyncTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: HealthSyncTests
+    dependencies:
+      - target: HealthSync
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.ladvien.healthsync.tests
+        GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+  HealthSync:
+    build:
+      targets:
+        HealthSync: all
+        HealthSyncTests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - HealthSyncTests
+    profile:
+      config: Release
+    analyze:
+      config: Debug

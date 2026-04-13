@@ -60,3 +60,16 @@ fastlane/report.xml
 fastlane/Preview.html
 fastlane/screenshots/**/*.png
 fastlane/test_output
+
+# Rust
+target/
+api/.env
+
+# XcodeGen (generated, not committed)
+ios/*.xcodeproj/
+
+# SweetPad
+ios/buildServer.json
+
+# macOS
+.DS_Store
