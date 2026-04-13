@@ -153,17 +153,26 @@ struct MealLogView: View {
         isSaving = true
         defer { isSaving = false }
 
-        let foodName = payload.items.compactMap { $0.matchedFood?.name ?? $0.parsed.foodName }
+        let foodName = payload.items
+            .map { $0.matchedFood?.name ?? $0.parsed.foodName }
             .joined(separator: ", ")
 
         do {
-            try await HKManager.shared.writeMealCorrelation(
+            let result = try await HKManager.shared.writeMealCorrelation(
                 foodName: foodName,
                 mealType: payload.mealType,
                 nutrients: payload.asHealthKitSamples(),
                 syncIdentifier: payload.syncIdentifier
             )
-            statusMessage = "Saved to Apple Health."
+            if result.skipped.isEmpty {
+                statusMessage = "Saved \(result.written) nutrients to Apple Health."
+            } else {
+                statusMessage = """
+                    Saved \(result.written); \(result.skipped.count) \
+                    nutrient\(result.skipped.count == 1 ? "" : "s") skipped \
+                    — write access not granted.
+                    """
+            }
             response = nil
             transcript = ""
         } catch {

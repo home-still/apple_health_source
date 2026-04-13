@@ -8,6 +8,10 @@ final class HKManager: ObservableObject {
 
     private let store = HKHealthStore()
     @Published var isAuthorized = false
+    /// Subset of `HKTypes.dietaryWriteIdentifiers` the user has granted write access to.
+    /// `writeMealCorrelation` only emits samples for identifiers in this set so a
+    /// partial denial surfaces as "skipped" rather than a silent `save()` throw.
+    @Published var authorizedWriteIdentifiers: Set<HKQuantityTypeIdentifier> = []
 
     private init() {}
 
@@ -24,9 +28,25 @@ final class HKManager: ObservableObject {
                 read: HKTypes.allReadTypes
             )
             isAuthorized = true
+            refreshAuthorizedWriteIdentifiers()
         } catch {
             print("HealthKit authorization failed: \(error)")
         }
+    }
+
+    /// Re-read the per-type write authorization status. `.sharingAuthorized` means
+    /// the user granted write access; `.sharingDenied` and `.notDetermined` don't.
+    /// Note that HealthKit intentionally won't tell you which of the two a denial
+    /// falls under — so we treat anything non-authorized as "skip this nutrient".
+    private func refreshAuthorizedWriteIdentifiers() {
+        var granted: Set<HKQuantityTypeIdentifier> = []
+        for id in HKTypes.dietaryWriteIdentifiers {
+            let status = store.authorizationStatus(for: HKQuantityType(id))
+            if status == .sharingAuthorized {
+                granted.insert(id)
+            }
+        }
+        authorizedWriteIdentifiers = granted
     }
 
     /// Prefix every app-written correlation carries in `HKMetadataKeySyncIdentifier`,
@@ -40,9 +60,15 @@ final class HKManager: ObservableObject {
         nutrients: [HKQuantityTypeIdentifier: (amount: Double, unit: HKUnit)],
         syncIdentifier: UUID,
         date: Date = Date()
-    ) async throws {
+    ) async throws -> WriteResult {
+        refreshAuthorizedWriteIdentifiers()
         var samples = Set<HKSample>()
+        var skipped: [HKQuantityTypeIdentifier] = []
         for (id, entry) in nutrients where entry.amount > 0 {
+            guard authorizedWriteIdentifiers.contains(id) else {
+                skipped.append(id)
+                continue
+            }
             let quantity = HKQuantity(unit: entry.unit, doubleValue: entry.amount)
             let sample = HKQuantitySample(
                 type: HKQuantityType(id),
@@ -55,7 +81,7 @@ final class HKManager: ObservableObject {
 
         guard !samples.isEmpty,
               let correlationType = HKCorrelationType.correlationType(forIdentifier: .food) else {
-            return
+            return WriteResult(written: 0, skipped: skipped)
         }
 
         let metadata: [String: Any] = [
@@ -75,6 +101,12 @@ final class HKManager: ObservableObject {
         )
 
         try await store.save(correlation)
+        return WriteResult(written: samples.count, skipped: skipped)
+    }
+
+    struct WriteResult: Sendable {
+        let written: Int
+        let skipped: [HKQuantityTypeIdentifier]
     }
 
     /// Run an anchored object query for a single sample type with an optional limit.
