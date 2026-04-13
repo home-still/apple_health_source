@@ -42,6 +42,7 @@ async fn main() {
         pool,
         jwt_secret: config.jwt_secret,
         llm,
+        nutrition_cache: nutrition::cache::NutritionCache::new(),
     });
 
     let app = routes::app_router(state)

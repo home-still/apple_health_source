@@ -10,11 +10,13 @@ use crate::error::AppError;
 use crate::llm::LlmClient;
 use crate::models::health_sample::AuthResponse;
 use crate::models::{CreateUser, LoginRequest, User};
+use crate::nutrition::cache::NutritionCache;
 
 pub struct AppState {
     pub pool: PgPool,
     pub jwt_secret: String,
     pub llm: std::sync::Arc<dyn LlmClient>,
+    pub nutrition_cache: NutritionCache,
 }
 
 pub async fn register(

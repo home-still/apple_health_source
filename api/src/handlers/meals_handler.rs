@@ -10,7 +10,8 @@ use crate::handlers::auth_handler::AppState;
 use crate::models::meal::{
     MatchedItem, MealNutritionResponse, MealParseRequest, NutrientValue, ParsedItem,
 };
-use crate::nutrition::lookup::{best_match, nutrients_per_100g, portions_for, scale_nutrients};
+use crate::nutrition::cache::cached_best_match;
+use crate::nutrition::lookup::{nutrients_per_100g, portions_for, scale_nutrients};
 use crate::nutrition::units::to_grams;
 
 pub async fn parse_meal(
@@ -76,7 +77,12 @@ pub async fn parse_meal(
 }
 
 async fn resolve_item(state: &AppState, parsed: ParsedItem) -> Result<MatchedItem, AppError> {
-    let matched_food = best_match(&state.pool, &parsed.database_search_terms).await?;
+    let matched_food = cached_best_match(
+        &state.nutrition_cache,
+        &state.pool,
+        &parsed.database_search_terms,
+    )
+    .await?;
 
     let (grams, nutrients) = match &matched_food {
         Some(food) => {

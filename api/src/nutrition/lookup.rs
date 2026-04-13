@@ -4,38 +4,29 @@ use crate::error::AppError;
 use crate::models::meal::{MatchedFood, NutrientValue};
 use crate::nutrition::units::Portion;
 
-/// Try each search term in order; return the first decent match. We prefer
-/// full-text rank and fall back to `pg_trgm` similarity for very short inputs.
-pub async fn best_match(
+/// Single-term FTS lookup. Call through `nutrition::cache::cached_best_match`
+/// for the memoized iteration over the LLM's search-term list.
+pub async fn best_match_for_term(
     pool: &PgPool,
-    search_terms: &[String],
+    term: &str,
 ) -> Result<Option<MatchedFood>, AppError> {
-    for term in search_terms {
-        let trimmed = term.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        let row: Option<(i32, String, String)> = sqlx::query_as(
-            r#"
-            SELECT f.fdc_id, f.name, f.data_type
-            FROM nutrition.foods f
-            WHERE f.search_vector @@ plainto_tsquery('english', $1)
-               OR f.name % $1
-            ORDER BY
-                ts_rank(f.search_vector, plainto_tsquery('english', $1)) DESC,
-                similarity(f.name, $1) DESC
-            LIMIT 1
-            "#,
-        )
-        .bind(trimmed)
-        .fetch_optional(pool)
-        .await?;
+    let row: Option<(i32, String, String)> = sqlx::query_as(
+        r#"
+        SELECT f.fdc_id, f.name, f.data_type
+        FROM nutrition.foods f
+        WHERE f.search_vector @@ plainto_tsquery('english', $1)
+           OR f.name % $1
+        ORDER BY
+            ts_rank(f.search_vector, plainto_tsquery('english', $1)) DESC,
+            similarity(f.name, $1) DESC
+        LIMIT 1
+        "#,
+    )
+    .bind(term)
+    .fetch_optional(pool)
+    .await?;
 
-        if let Some((fdc_id, name, data_type)) = row {
-            return Ok(Some(MatchedFood { fdc_id, name, data_type }));
-        }
-    }
-    Ok(None)
+    Ok(row.map(|(fdc_id, name, data_type)| MatchedFood { fdc_id, name, data_type }))
 }
 
 /// Pull every mapped nutrient for a food as amounts per 100 g.
