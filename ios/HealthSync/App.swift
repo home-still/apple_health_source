@@ -7,7 +7,7 @@ struct HealthSyncApp: App {
 
     var body: some Scene {
         WindowGroup {
-            DashboardView()
+            RootTabView()
         }
     }
 }
@@ -17,6 +17,13 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
+        // The XCTest harness boots the app inside the test runner — skip
+        // HealthKit setup there to avoid `_throwIfAuthorizationDisallowedForSharing`
+        // crashing on a simulator without a signed entitlement.
+        if NSClassFromString("XCTestCase") != nil {
+            return true
+        }
+
         // Force full re-sync on this build (reset anchors once)
         let resetKey = "anchor_reset_v6_routes"
         if !UserDefaults.standard.bool(forKey: resetKey) {

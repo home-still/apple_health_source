@@ -1,7 +1,7 @@
 import HealthKit
 import SwiftUI
 
-struct DashboardView: View {
+struct SyncView: View {
     @StateObject private var syncEngine = SyncEngine.shared
     @StateObject private var hkManager = HKManager.shared
 
@@ -99,12 +99,6 @@ struct DashboardView: View {
                         Text("HealthSync")
                             .font(.headline)
                     }
-                }
-                ToolbarItem(placement: .navigationBarLeading) {
-                    NavigationLink(destination: MealLogView()) {
-                        Image(systemName: "mic.fill")
-                    }
-                    .accessibilityLabel("Log meal by voice")
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     NavigationLink(destination: SettingsView()) {
@@ -220,5 +214,5 @@ struct TypeProgressRow: View {
 }
 
 #Preview {
-    DashboardView()
+    SyncView()
 }

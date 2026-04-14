@@ -11,106 +11,129 @@ struct MealLogView: View {
     @State private var response: MealNutritionResponse?
     @State private var statusMessage: String?
     @State private var errorMessage: String?
+    @State private var recordingTask: Task<Void, Never>?
+    @State private var parseTask: Task<Void, Never>?
+    @State private var saveTask: Task<Void, Never>?
 
-    private let speech = SpeechService()
+    @StateObject private var speech = SpeechController()
+    @Environment(\.dismiss) private var dismiss
     private let mealTypes = ["Breakfast", "Lunch", "Dinner", "Snack"]
 
     var body: some View {
-        Form {
-            Section("Meal") {
-                Picker("Type", selection: $mealType) {
-                    ForEach(mealTypes, id: \.self) { Text($0) }
+        ZStack {
+            Form {
+                Section("Meal") {
+                    Picker("Type", selection: $mealType) {
+                        ForEach(mealTypes, id: \.self) { Text($0) }
+                    }
+                    .pickerStyle(.segmented)
                 }
-                .pickerStyle(.segmented)
-            }
 
-            Section("What did you eat?") {
-                TextEditor(text: $transcript)
-                    .frame(minHeight: 80)
-                    .overlay(alignment: .topLeading) {
-                        if transcript.isEmpty {
-                            Text("Tap the mic and describe your meal…")
-                                .foregroundStyle(.secondary)
-                                .padding(.top, 8)
-                                .padding(.leading, 4)
-                                .allowsHitTesting(false)
+                Section("What did you eat?") {
+                    TextEditor(text: $transcript)
+                        .frame(minHeight: 80)
+                        .overlay(alignment: .topLeading) {
+                            if transcript.isEmpty {
+                                Text("Tap the mic and describe your meal…")
+                                    .foregroundStyle(.secondary)
+                                    .padding(.top, 8)
+                                    .padding(.leading, 4)
+                                    .allowsHitTesting(false)
+                            }
+                        }
+                        .accessibilityLabel("Meal description")
+
+                    HStack {
+                        Button {
+                            recordingTask?.cancel()
+                            recordingTask = Task { await toggleRecording() }
+                        } label: {
+                            Label(
+                                isRecording ? "Stop" : "Record",
+                                systemImage: isRecording ? "stop.circle.fill" : "mic.circle.fill"
+                            )
+                        }
+                        .tint(isRecording ? .red : .blue)
+
+                        Spacer()
+
+                        Button("Parse") {
+                            parseTask?.cancel()
+                            parseTask = Task { await parse() }
+                        }
+                        .disabled(transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isParsing)
+                    }
+                }
+
+                if let response {
+                    Section("Matched foods") {
+                        ForEach(Array(response.items.enumerated()), id: \.offset) { _, item in
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(item.matchedFood?.name ?? item.parsed.foodName)
+                                    .font(.subheadline.bold())
+                                Text(itemDescription(item))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                     }
 
-                HStack {
-                    Button {
-                        Task { await toggleRecording() }
-                    } label: {
-                        Label(
-                            isRecording ? "Stop" : "Record",
-                            systemImage: isRecording ? "stop.circle.fill" : "mic.circle.fill"
-                        )
-                    }
-                    .tint(isRecording ? .red : .blue)
-
-                    Spacer()
-
-                    Button("Parse") {
-                        Task { await parse() }
-                    }
-                    .disabled(transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isParsing)
-                }
-            }
-
-            if let response {
-                Section("Matched foods") {
-                    ForEach(Array(response.items.enumerated()), id: \.offset) { _, item in
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(item.matchedFood?.name ?? item.parsed.foodName)
-                                .font(.subheadline.bold())
-                            Text(itemDescription(item))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                    Section("Totals") {
+                        ForEach(response.totals, id: \.hkIdentifier) { n in
+                            HStack {
+                                Text(displayName(for: n.hkIdentifier))
+                                Spacer()
+                                Text("\(n.amount, specifier: "%.1f") \(n.unit.lowercased())")
+                                    .foregroundStyle(.secondary)
+                                    .monospacedDigit()
+                            }
+                            .font(.caption)
                         }
                     }
-                }
 
-                Section("Totals") {
-                    ForEach(response.totals, id: \.hkIdentifier) { n in
-                        HStack {
-                            Text(displayName(for: n.hkIdentifier))
-                            Spacer()
-                            Text("\(n.amount, specifier: "%.1f") \(n.unit.lowercased())")
-                                .foregroundStyle(.secondary)
-                                .monospacedDigit()
+                    Section {
+                        Button {
+                            saveTask?.cancel()
+                            saveTask = Task { await save(response) }
+                        } label: {
+                            Label("Save to Health", systemImage: "heart.text.square")
                         }
-                        .font(.caption)
+                        .disabled(isSaving)
                     }
                 }
 
-                Section {
-                    Button {
-                        Task { await save(response) }
-                    } label: {
-                        Label("Save to Health", systemImage: "heart.text.square")
-                    }
-                    .disabled(isSaving)
+                if let statusMessage {
+                    Section { Text(statusMessage).foregroundStyle(.green).font(.caption) }
+                }
+                if let errorMessage {
+                    Section { Text(errorMessage).foregroundStyle(.red).font(.caption) }
                 }
             }
+            .disabled(isParsing || isSaving)
 
-            if let statusMessage {
-                Section { Text(statusMessage).foregroundStyle(.green).font(.caption) }
-            }
-            if let errorMessage {
-                Section { Text(errorMessage).foregroundStyle(.red).font(.caption) }
+            if isParsing || isSaving {
+                ProgressView(isParsing ? "Parsing…" : "Saving…")
+                    .padding()
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
             }
         }
         .navigationTitle("Log Meal")
         .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                NavigationLink(destination: MealHistoryView()) {
-                    Image(systemName: "clock.arrow.circlepath")
-                }
-                .accessibilityLabel("Meal history")
+            ToolbarItem(placement: .navigationBarLeading) {
+                Button("Cancel") { dismiss() }
             }
         }
         .task {
             _ = await SpeechService.requestAuthorization()
+        }
+        .onDisappear {
+            // Cancel any in-flight tasks and tear down the recorder when the
+            // view goes away — prevents mutating stale @State after navigation
+            // and keeps the mic from staying hot in the background.
+            recordingTask?.cancel()
+            parseTask?.cancel()
+            saveTask?.cancel()
+            Task { await speech.stop() }
         }
     }
 
@@ -127,6 +150,7 @@ struct MealLogView: View {
             let stream = try await speech.transcribe()
             isRecording = true
             for try await text in stream {
+                if Task.isCancelled { break }
                 transcript = text
             }
             isRecording = false
@@ -143,8 +167,10 @@ struct MealLogView: View {
         defer { isParsing = false }
         do {
             let result = try await APIClient.shared.parseMeal(text: transcript, mealType: mealType)
+            if Task.isCancelled { return }
             response = result
         } catch {
+            if Task.isCancelled { return }
             errorMessage = error.localizedDescription
         }
     }
@@ -164,6 +190,7 @@ struct MealLogView: View {
                 nutrients: payload.asHealthKitSamples(),
                 syncIdentifier: payload.syncIdentifier
             )
+            if Task.isCancelled { return }
             if result.skipped.isEmpty {
                 statusMessage = "Saved \(result.written) nutrients to Apple Health."
             } else {
@@ -176,6 +203,7 @@ struct MealLogView: View {
             response = nil
             transcript = ""
         } catch {
+            if Task.isCancelled { return }
             errorMessage = "Save failed: \(error.localizedDescription)"
         }
     }
