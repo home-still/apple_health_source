@@ -53,6 +53,19 @@ async fn parse_meal_inner(
         return Err(AppError::BadRequest("text is required".into()));
     }
 
+    let meal_type = payload.meal_type.trim().to_lowercase();
+    if !["breakfast", "lunch", "dinner", "snack"].contains(&meal_type.as_str()) {
+        tracing::warn!(
+            user_id = %claims.sub,
+            meal_type = %payload.meal_type,
+            "meal parse rejected: invalid meal_type"
+        );
+        return Err(AppError::BadRequest(format!(
+            "invalid meal_type: {:?}",
+            payload.meal_type
+        )));
+    }
+
     let parsed = state.llm.parse_meal(&payload.text).await?;
     tracing::info!(items = parsed.items.len(), "meal parse llm ok");
     let parsed_items_json = serde_json::to_value(&parsed.items)
@@ -90,7 +103,7 @@ async fn parse_meal_inner(
     .bind(claims.sub)
     .bind(sync_identifier)
     .bind(&payload.text)
-    .bind(&payload.meal_type)
+    .bind(&meal_type)
     .bind(&parsed_items_json)
     .bind(serde_json::Value::Array(matched_foods_json))
     .bind(&final_nutrients_json)
@@ -109,7 +122,7 @@ async fn parse_meal_inner(
 
     let response = MealNutritionResponse {
         sync_identifier,
-        meal_type: payload.meal_type,
+        meal_type,
         items: matched_items,
         totals,
     };
