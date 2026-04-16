@@ -31,6 +31,7 @@ pub enum Confidence {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ParsedMeal {
+    #[serde(alias = "foods", alias = "food_items", alias = "meal_items")]
     pub items: Vec<ParsedItem>,
 }
 
