@@ -165,12 +165,15 @@ struct MealLogView: View {
         statusMessage = nil
         isParsing = true
         defer { isParsing = false }
+        print("MEAL PARSE: start len=\(transcript.count) mealType=\(mealType)")
         do {
             let result = try await APIClient.shared.parseMeal(text: transcript, mealType: mealType)
             if Task.isCancelled { return }
+            print("MEAL PARSE: ok items=\(result.items.count) totals=\(result.totals.count)")
             response = result
         } catch {
             if Task.isCancelled { return }
+            print("MEAL PARSE: fail \(type(of: error)) \(error.localizedDescription)")
             errorMessage = error.localizedDescription
         }
     }

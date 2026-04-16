@@ -10,12 +10,14 @@ pub struct MealParseRequest {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ParsedItem {
+    #[serde(alias = "name")]
     pub food_name: String,
     pub quantity: f32,
     pub unit: String,
-    #[serde(default)]
+    #[serde(default, alias = "preparation")]
     pub preparation_method: Option<String>,
     pub confidence: Confidence,
+    #[serde(alias = "search_terms")]
     pub database_search_terms: Vec<String>,
 }
 
@@ -44,7 +46,7 @@ pub struct MealNutritionResponse {
 pub struct MatchedItem {
     pub parsed: ParsedItem,
     pub matched_food: Option<MatchedFood>,
-    pub grams: Option<f32>,
+    pub grams: Option<f64>,
     pub nutrients: Vec<NutrientValue>,
 }
 
@@ -59,22 +61,52 @@ pub struct MatchedFood {
 pub struct NutrientValue {
     pub hk_identifier: String,
     pub unit: String,
-    pub amount: f32,
+    pub amount: f64,
     #[serde(default)]
     pub sparse: bool,
 }
 
+/// Compact list-item for the history endpoint. Only the top-line macros are
+/// returned so the response size stays bounded; full `final_nutrients` is
+/// fetched on demand via `GET /api/meals/{id}`.
 #[derive(Debug, Serialize)]
-pub struct MealHistoryEntry {
+pub struct MealHistorySummary {
     pub id: Uuid,
     pub sync_identifier: Uuid,
     pub raw_text: String,
     pub meal_type: String,
-    pub final_nutrients: serde_json::Value,
     pub created_at: DateTime<Utc>,
+    pub totals: MealHistoryTotals,
+}
+
+/// Macro summary computed from `final_nutrients` JSONB at read time. Fields are
+/// optional — a meal with no matched foods has empty totals.
+#[derive(Debug, Default, Serialize)]
+pub struct MealHistoryTotals {
+    pub calories_kcal: Option<f64>,
+    pub protein_g: Option<f64>,
+    pub carbs_g: Option<f64>,
+    pub fat_g: Option<f64>,
 }
 
 #[derive(Debug, Serialize)]
 pub struct MealHistoryResponse {
-    pub items: Vec<MealHistoryEntry>,
+    pub items: Vec<MealHistorySummary>,
+    /// Opaque cursor for the next page (the `created_at` of the last returned
+    /// row). Clients should pass it back as `?before=...` to fetch older rows.
+    pub next_before: Option<DateTime<Utc>>,
+}
+
+/// Full meal record returned by the detail endpoint.
+#[derive(Debug, Serialize)]
+pub struct MealDetail {
+    pub id: Uuid,
+    pub sync_identifier: Uuid,
+    pub raw_text: String,
+    pub meal_type: String,
+    pub parsed_items: serde_json::Value,
+    pub matched_foods: serde_json::Value,
+    pub final_nutrients: serde_json::Value,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: Option<DateTime<Utc>>,
 }

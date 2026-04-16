@@ -7,22 +7,45 @@ actor APIClient {
     /// Base URL of the API server. Configure this in settings.
     var baseURL = URL(string: "https://health.lolzlab.com")!
 
-    /// JWT token obtained after login/register. Persisted to UserDefaults.
+    private static let tokenAccount = "api_jwt_token"
+    private static let deviceIdAccount = "api_device_id"
+
+    /// JWT token obtained after login/register. Persisted in the Keychain.
     var token: String? {
-        didSet { UserDefaults.standard.set(token, forKey: "api_jwt_token") }
+        didSet {
+            if let token {
+                KeychainStore.save(token, for: Self.tokenAccount)
+            } else {
+                KeychainStore.delete(Self.tokenAccount)
+            }
+        }
     }
 
-    /// Device ID obtained after device registration. Persisted to UserDefaults.
+    /// Device ID obtained after device registration. Persisted in the Keychain.
     var deviceId: UUID? {
         didSet {
-            UserDefaults.standard.set(deviceId?.uuidString, forKey: "api_device_id")
+            if let id = deviceId {
+                KeychainStore.save(id.uuidString, for: Self.deviceIdAccount)
+            } else {
+                KeychainStore.delete(Self.deviceIdAccount)
+            }
         }
     }
 
     private init() {
-        // Restore persisted auth state
-        self.token = UserDefaults.standard.string(forKey: "api_jwt_token")
-        if let idStr = UserDefaults.standard.string(forKey: "api_device_id") {
+        // One-time migration from the legacy UserDefaults storage.
+        let defaults = UserDefaults.standard
+        if let legacyToken = defaults.string(forKey: "api_jwt_token") {
+            KeychainStore.save(legacyToken, for: Self.tokenAccount)
+            defaults.removeObject(forKey: "api_jwt_token")
+        }
+        if let legacyDevice = defaults.string(forKey: "api_device_id") {
+            KeychainStore.save(legacyDevice, for: Self.deviceIdAccount)
+            defaults.removeObject(forKey: "api_device_id")
+        }
+
+        self.token = KeychainStore.load(Self.tokenAccount)
+        if let idStr = KeychainStore.load(Self.deviceIdAccount) {
             self.deviceId = UUID(uuidString: idStr)
         }
     }
@@ -40,7 +63,19 @@ actor APIClient {
         self.deviceId = id
     }
 
-    private let session = URLSession.shared
+    /// Dedicated session so a stuck request doesn't tie up `URLSession.shared`
+    /// (used by system traffic). Hash-check queries against the multi-million-
+    /// row TimescaleDB hypertable can legitimately take 30–90 s under
+    /// concurrent load on the Pi5 host, so the per-request budget is 120 s.
+    /// Still under the 300 s server-side `statement_timeout` so the client
+    /// surfaces a clean timeout before the API does.
+    private let session: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 120
+        config.timeoutIntervalForResource = 180
+        config.waitsForConnectivity = false
+        return URLSession(configuration: config)
+    }()
     private let encoder: JSONEncoder = {
         let e = JSONEncoder()
         e.dateEncodingStrategy = .iso8601
@@ -111,11 +146,54 @@ actor APIClient {
 
     func parseMeal(text: String, mealType: String) async throws -> MealNutritionResponse {
         let body = MealParseRequest(text: text, mealType: mealType)
-        return try await post(path: "/api/meals/parse", body: body)
+        do {
+            let response: MealNutritionResponse =
+                try await post(path: "/api/meals/parse", body: body)
+            // Any queued meals from offline attempts get flushed on the first
+            // successful online request.
+            await PendingMealQueue.shared.drain(apiClient: self)
+            return response
+        } catch {
+            if Self.isNetworkError(error) {
+                await PendingMealQueue.shared.enqueue(.init(
+                    text: text, mealType: mealType, createdAt: Date()
+                ))
+            }
+            throw error
+        }
     }
 
-    func mealHistory(limit: Int = 50) async throws -> MealHistoryResponse {
-        try await get(path: "/api/meals/history?limit=\(limit)")
+    func mealHistory(limit: Int = 50, before: Date? = nil) async throws -> MealHistoryResponse {
+        var components = URLComponents()
+        components.path = "/api/meals/history"
+        var items: [URLQueryItem] = [URLQueryItem(name: "limit", value: String(limit))]
+        if let before {
+            items.append(URLQueryItem(
+                name: "before",
+                value: ISO8601DateFormatter().string(from: before)
+            ))
+        }
+        components.queryItems = items
+        guard let url = components.url(relativeTo: baseURL) else {
+            throw APIError.invalidResponse
+        }
+        return try await getAt(url: url)
+    }
+
+    /// True for errors raised when the request never left the device (offline,
+    /// DNS failure, TLS handshake abort). 5xx responses are *not* counted here
+    /// — those come through as `APIError.server`.
+    static func isNetworkError(_ error: Error) -> Bool {
+        let ns = error as NSError
+        guard ns.domain == NSURLErrorDomain else { return false }
+        return [
+            NSURLErrorNotConnectedToInternet,
+            NSURLErrorTimedOut,
+            NSURLErrorCannotFindHost,
+            NSURLErrorCannotConnectToHost,
+            NSURLErrorNetworkConnectionLost,
+            NSURLErrorDNSLookupFailed,
+        ].contains(ns.code)
     }
 
     // MARK: - Delete
@@ -149,16 +227,27 @@ actor APIClient {
 
         guard (200..<300).contains(http.statusCode) else {
             let message = String(data: data, encoding: .utf8) ?? "unknown error"
+            print("API FAIL: POST \(path) status=\(http.statusCode) body=\(message.prefix(500))")
             throw APIError.server(statusCode: http.statusCode, message: message)
         }
 
-        return try decoder.decode(Response.self, from: data)
+        do {
+            return try decoder.decode(Response.self, from: data)
+        } catch {
+            let preview = String(data: data, encoding: .utf8)?.prefix(300) ?? "<binary>"
+            print("API DECODE FAIL: POST \(path) error=\(error) bodyPreview=\(preview)")
+            throw error
+        }
     }
 
     private func get<Response: Decodable>(path: String) async throws -> Response {
         guard let url = URL(string: path, relativeTo: baseURL) else {
             throw APIError.invalidResponse
         }
+        return try await getAt(url: url)
+    }
+
+    private func getAt<Response: Decodable>(url: URL) async throws -> Response {
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         if let token {
