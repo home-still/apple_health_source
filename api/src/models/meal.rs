@@ -10,14 +10,14 @@ pub struct MealParseRequest {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ParsedItem {
-    #[serde(alias = "name")]
+    #[serde(alias = "name", alias = "food", alias = "food_item", alias = "item_name")]
     pub food_name: String,
     pub quantity: f32,
     pub unit: String,
-    #[serde(default, alias = "preparation")]
+    #[serde(default, alias = "preparation", alias = "prep")]
     pub preparation_method: Option<String>,
     pub confidence: Confidence,
-    #[serde(alias = "search_terms")]
+    #[serde(alias = "search_terms", alias = "terms")]
     pub database_search_terms: Vec<String>,
 }
 
