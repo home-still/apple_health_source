@@ -11,7 +11,8 @@ Apple-Health personal-data stack:
 ## Archived predecessors
 
 The following GitHub repos have been archived. They are read-only and preserved
-for history; no code was deleted.
+for history; no code was deleted. Each of their READMEs now carries a banner
+pointing back here.
 
 | Repo                                                                 | Archived date | What it was                                                              |
 |----------------------------------------------------------------------|---------------|--------------------------------------------------------------------------|
